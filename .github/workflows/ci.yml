@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: latest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run pytest --import-mode=importlib
+      - run: uv run modelctl-validate fixtures/policy
+      - run: uv run mypy --strict src
+      - run: uv run ruff check src scripts tests
+      - run: uv run python scripts/privacy_scan.py .
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+        working-directory: extensions/omp
+      - run: bun run test
+        working-directory: extensions/omp
+      - run: bun run typecheck
+        working-directory: extensions/omp
+      - run: bun run lint
+        working-directory: extensions/omp
+      - run: bun run smoke
+        working-directory: extensions/omp

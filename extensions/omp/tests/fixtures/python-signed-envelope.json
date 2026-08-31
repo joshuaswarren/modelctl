@@ -1,0 +1,19 @@
+{
+  "keyId": "fixture-python-key",
+  "issuedAt": "2026-08-29T12:00:00Z",
+  "expiresAt": "2099-08-29T12:00:00Z",
+  "nonce": "cross-runtime-nonce",
+  "sequence": 7,
+  "payloadDigest": "2d88c5b35b3d834028c8d77723f5a268f66054bd1057c7c2abcae145870f5fd7",
+  "signature": "VAGRwLQ/6Bb3JD9iSdRADBfQLEt6h0+t8jw7HXc9V/ANV4NihcQEEEKPXW4Ja3cTd+Xux4QbaVFYkLfbeu+gDw==",
+  "payload": {
+    "version": 1,
+    "budgets": [
+      {
+        "agent": {
+          "fixture-agent": 100
+        }
+      }
+    ]
+  }
+}

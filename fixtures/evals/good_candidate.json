@@ -1,0 +1,48 @@
+{
+  "candidate": {
+    "id": "good-candidate",
+    "provider": "local",
+    "destination": "local://engine-a",
+    "route": "good-route",
+    "mode": "strict-local",
+    "capabilities": ["tools"],
+    "contextWindowTokens": 32768
+  },
+  "catalog": [
+    {
+      "id": "good-candidate",
+      "provider": "local",
+      "destination": "local://engine-a",
+      "route": "good-route",
+      "mode": "strict-local",
+      "capabilities": ["tools"],
+      "contextWindowTokens": 32768
+    }
+  ],
+  "hardFit": {
+    "requiredCapabilities": ["tools"],
+    "minimumContextWindowTokens": 8192
+  },
+  "evaluationClass": "objective",
+  "outputs": [
+    {
+      "format": "json",
+      "value": {"answer": "ready"},
+      "tool_calls": [{"name": "lookup", "arguments": {}}],
+      "refused": false,
+      "receipt": {"requestId": "fixture-1", "status": "complete"}
+    }
+  ],
+  "knownProviders": ["local"],
+  "egressApprovals": [],
+  "canaryPolicy": {
+    "maxErrorRate": 0.05,
+    "maxLatencyP95Ms": 200,
+    "maxQuotaDrawRegression": 0.1,
+    "cohort": "fixture-cohort"
+  },
+  "baselineMetrics": {"requests": 100, "errors": 1, "latencyP95Ms": 100, "quotaDraw": 100},
+  "candidateMetrics": {"requests": 100, "errors": 1, "latencyP95Ms": 100, "quotaDraw": 100},
+  "rollbackTarget": "stable-route",
+  "provenance": {"source": "fixture", "revision": "good-1"}
+}

@@ -1,0 +1,12 @@
+.claude/
+.unlazy/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+node_modules/
+coverage/
+dist/
+modelctl-operator-actions.jsonl

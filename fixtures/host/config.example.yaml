@@ -1,0 +1,20 @@
+# modelctl-host-agent run --config host-agent.yaml
+hostId: host-a
+signing:
+  keyId: host-a-report
+  privateKeyPath: /etc/modelctl/host-a-ed25519.pem
+controllers:
+  - https://controller.example
+engines:
+  - id: engine-a
+    collector: ollama
+    baseUrl: http://127.0.0.1:11434
+    aliases: [tiny]
+statePath: /var/lib/modelctl/host-state.json
+sequencePath: /var/lib/modelctl/host-sequence.json
+eventsPath: /var/log/modelctl/host-events.jsonl
+timeoutSeconds: 10
+intervalSeconds: 60
+reportTtlSeconds: 600
+maintenanceState: active
+n1Impossible: false

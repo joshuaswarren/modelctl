@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "workloads": [
+    {
+      "name": "tiny",
+      "interactive": true
+    },
+    {
+      "name": "scout-bounded"
+    },
+    {
+      "name": "advisor",
+      "strictLocal": true,
+      "unavailableBehavior": "block",
+      "reservedReplicas": 1
+    }
+  ],
+  "engines": [
+    {
+      "id": "engine-a",
+      "host": "engine-a.example.test",
+      "aliases": ["tiny", "advisor"],
+      "maxSlots": 4,
+      "interactiveReserved": 1
+    }
+  ],
+  "reservations": [
+    {
+      "workload": "advisor",
+      "prewarmHosts": ["engine-a.example.test", "engine-b.example.test"]
+    }
+  ],
+  "budgets": [
+    {
+      "agent": {"agent-a": 10000},
+      "project": {"project-a": 50000},
+      "provider": {"provider-a": 100000}
+    }
+  ],
+  "runway": [
+    {
+      "source": "provider-derived",
+      "remainingTokens": 100000,
+      "resetAt": "2026-09-01T00:00:00Z"
+    }
+  ],
+  "routes": {
+    "tiny": "engine-a.example.test",
+    "advisor": "engine-a.example.test"
+  }
+}

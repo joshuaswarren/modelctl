@@ -1,0 +1,67 @@
+{
+  "hostId": "host-synthetic",
+  "state": "active",
+  "n1Impossible": true,
+  "n1ImpossibleReason": "The synthetic fixture declares one compatible failure domain.",
+  "engines": [
+    {
+      "id": "engine-ollama",
+      "collector": "ollama",
+      "baseUrl": "https://ollama.example.test",
+      "aliases": ["tiny", "slow"],
+      "responses": {
+        "/api/ps": {
+          "models": [
+            {
+              "name": "synthetic-model",
+              "inFlight": 1,
+              "queueDepth": 2,
+              "latencyMs": 15.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "engine-llamacpp",
+      "collector": "llamacpp",
+      "baseUrl": "https://llama.example.test",
+      "aliases": ["researcher"],
+      "responses": {
+        "/health": {
+          "status": "ok",
+          "latencyMs": 12.0
+        },
+        "/props": {
+          "model": "synthetic-model-b"
+        },
+        "/slots": {
+          "slots": [
+            {"state": "processing"},
+            {"state": "queued"},
+            {"state": "idle"}
+          ]
+        }
+      }
+    },
+    {
+      "id": "engine-omlx",
+      "collector": "omlx",
+      "baseUrl": "https://omlx.example.test",
+      "aliases": ["advisor"],
+      "responses": {
+        "/health": {
+          "status": "ok",
+          "inFlight": 1,
+          "queueDepth": 0,
+          "latencyMs": 10.0
+        },
+        "/v1/models": {
+          "data": [
+            {"id": "synthetic-model-c"}
+          ]
+        }
+      }
+    }
+  ]
+}
