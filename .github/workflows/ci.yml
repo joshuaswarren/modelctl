@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --group dev
       - run: uv run pytest --import-mode=importlib
       - run: uv run modelctl-validate fixtures/policy
       - run: uv run mypy --strict src
@@ -29,6 +29,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - run: bun install
       - run: bun install --frozen-lockfile
         working-directory: extensions/omp
       - run: bun run test
