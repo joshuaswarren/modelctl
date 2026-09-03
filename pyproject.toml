@@ -26,6 +26,7 @@ modelctl-quota-collector = "modelctl.telemetry.cli:main"
 modelctl-event-forwarder = "modelctl.telemetry.event_cli:main"
 modelctl-operator = "modelctl.operator.cli:main"
 modelctl-litellm-receiver = "modelctl.adapters.litellm.receiver_cli:main"
+modelctl-omp-selector = "modelctl.adapters.omp.cli:main"
 
 [build-system]
 requires = ["hatchling"]
