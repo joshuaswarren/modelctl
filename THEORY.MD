@@ -61,6 +61,22 @@ A new cloud destination requires exact egress approval.
 Canary policy checks error rate, p95 latency, and quota draw.
 Every decision reaches durable storage before route activation or rollback.
 
+## Subscription selection
+
+Selection qualifies routes before it considers subscription runway.
+Promotion records identify candidates through the evaluation pipeline's canonical `inputs.candidate.id` field.
+Unknown, stale, or mismatched runway cannot make a cloud route eligible.
+Equal-time observations use the highest reported usage, which makes duplicate data fail conservatively.
+An eligible incumbent stays selected until quality, availability, or reserve policy disqualifies it.
+
+The selector maps each managed workload onto an OMP native role and fallback chain.
+It preserves roles outside its policy and leaves blocked roles on their last-known-good configuration.
+The OMP adapter changes only `modelRoles` and `retry.fallbackChains`.
+It reads but never changes `task.agentModelOverrides`.
+Failure receipts report the adapter's actual native write set.
+Receipt creation syncs both file contents and the parent directory entry.
+Explicit `/model` choices and provider request payloads remain outside the selection loop.
+
 ## Routing transactions
 
 The LiteLLM adapter reserves interactive capacity before weighted routes.
