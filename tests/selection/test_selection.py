@@ -354,7 +354,7 @@ class TestStrictLocal:
 
 
 class TestSelectionOrder:
-    def test_eligible_incumbent_is_kept(self) -> None:
+    def test_eligible_higher_priority_candidate_reclaims_role(self) -> None:
         incumbent = candidate("alpha", priority=9)
         better = candidate("beta", priority=0)
         req = request(
@@ -367,9 +367,26 @@ class TestSelectionOrder:
             roles={"plan": "alpha"},
         )
         plan = select_models(req)
+        assert plan.model_roles["plan"] == "beta"
+        assert plan.changed_roles == ["plan"]
+        assert plan.fallback_chains["plan"] == ["alpha"]
+
+    def test_equal_priority_incumbent_is_kept_over_quieter_peer(self) -> None:
+        busy = estimate("busy", "main", used=700.0)
+        quiet = estimate("quiet", "main", used=100.0)
+        req = request(
+            section(
+                candidates=[candidate("alpha", provider="busy"), candidate("beta", provider="quiet")],
+                promotions=[promotion("alpha"), promotion("beta")],
+                runway={"busy/main": {"maximum": 1000.0}, "quiet/main": {"maximum": 1000.0}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
+            ),
+            estimates(busy, quiet),
+            roles={"plan": "alpha"},
+        )
+        plan = select_models(req)
         assert plan.model_roles["plan"] == "alpha"
         assert plan.changed_roles == []
-        assert plan.blocked_roles == []
 
     def test_falls_back_by_policy_priority(self) -> None:
         stale_incumbent = candidate("alpha", priority=5, provider="old")

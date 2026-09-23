@@ -263,7 +263,9 @@ def select_models(request: SelectionRequest) -> SelectionPlan:
         eligible_ids = [candidate.id for candidate in ordered]
         previous = model_roles.get(role_name)
         selected: str | None
-        if previous is not None and previous in eligible_ids:
+        # Stick only among equal-priority peers, so a recovered higher-priority candidate reclaims the role.
+        top_priority = ordered[0].priority if ordered else None
+        if previous is not None and any(c.id == previous and c.priority == top_priority for c in ordered):
             selected = previous
             reason = "incumbent"
         elif ordered:
