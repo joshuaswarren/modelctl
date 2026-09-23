@@ -33,7 +33,6 @@ routes:
           destination: https://example.test/alpha
           route: alpha
           mode: cloud
-          priority: 0
           available: true
           qualificationExpiresAt: null
         - id: beta
@@ -42,7 +41,6 @@ routes:
           destination: https://example.test/beta
           route: beta
           mode: cloud
-          priority: 1
           available: true
           qualificationExpiresAt: null
       promotions:

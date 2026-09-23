@@ -67,8 +67,8 @@ Selection qualifies routes before it considers subscription runway.
 Promotion records identify candidates through the evaluation pipeline's canonical `inputs.candidate.id` field.
 Unknown, stale, or mismatched runway cannot make a cloud route eligible.
 Equal-time observations use the highest reported usage, which makes duplicate data fail conservatively.
-An eligible incumbent stays selected only against equal-priority peers.
-A higher-priority candidate reclaims the role as soon as it is eligible again, so a reserve dip does not strand a role on its fallback.
+Each role's candidate list is its rung order; candidates carry no global priority, so one model can lead one role and trail another.
+The first eligible candidate always wins, so a recovered primary reclaims its role on the next run and a reserve dip never strands a role on its fallback.
 
 The selector maps each managed workload onto an OMP native role and fallback chain.
 It preserves roles outside its policy and leaves blocked roles on their last-known-good configuration.

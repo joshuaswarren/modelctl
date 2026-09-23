@@ -23,7 +23,6 @@ class SelectionCandidate(Candidate):
     """Evaluation candidate extended with the account and qualification fields selection needs."""
 
     account: str = Field(min_length=1)
-    priority: int = 0
     qualification_expires_at: datetime | None = Field(
         default=None,
         alias="qualificationExpiresAt",
@@ -192,10 +191,10 @@ def _evaluate_role(
     policy: SelectionPolicy,
     now: datetime,
 ) -> tuple[list[SelectionCandidate], list[str]]:
-    """Return eligible candidates in selection order plus per-candidate exclusion reasons."""
+    """Return eligible candidates in the role's listed order plus per-candidate exclusion reasons."""
     expected_mode = role.expected_mode()
     max_age = timedelta(seconds=policy.max_observation_age_seconds)
-    eligible: list[tuple[int, float, str, SelectionCandidate]] = []
+    eligible: list[SelectionCandidate] = []
     failures: list[str] = []
     for ref in role.candidates:
         candidate = catalog.get(ref)
@@ -215,7 +214,7 @@ def _evaluate_role(
             failures.append(f"{ref}: unpromoted")
             continue
         if expected_mode is EvaluationMode.STRICT_LOCAL:
-            eligible.append((candidate.priority, 0.0, candidate.id, candidate))
+            eligible.append(candidate)
             continue
         estimate = runway_index.get((candidate.provider, candidate.account))
         if estimate is None:
@@ -238,9 +237,8 @@ def _evaluate_role(
         if used / maximum.maximum > policy.max_quota_used:
             failures.append(f"{ref}: quota-exceeded")
             continue
-        eligible.append((candidate.priority, used / maximum.maximum, candidate.id, candidate))
-    eligible.sort(key=lambda item: (item[0], item[1], item[2]))
-    return [item[3] for item in eligible], failures
+        eligible.append(candidate)
+    return eligible, failures
 
 
 def select_models(request: SelectionRequest) -> SelectionPlan:
@@ -262,19 +260,16 @@ def select_models(request: SelectionRequest) -> SelectionPlan:
         )
         eligible_ids = [candidate.id for candidate in ordered]
         previous = model_roles.get(role_name)
-        selected: str | None
-        # Stick only among equal-priority peers, so a recovered higher-priority candidate reclaims the role.
-        top_priority = ordered[0].priority if ordered else None
-        if previous is not None and any(c.id == previous and c.priority == top_priority for c in ordered):
-            selected = previous
+        # Each role's list order is its rung order, so the first eligible candidate always wins
+        # and a recovered primary reclaims the role on the next run.
+        selected = eligible_ids[0] if eligible_ids else None
+        if selected is None:
+            reason = "; ".join(failures) or "no eligible candidates"
+        elif selected == previous:
             reason = "incumbent"
-        elif ordered:
-            selected = ordered[0].id
+        else:
             prefix = "; ".join(failures)
             reason = f"{prefix}; selected {selected}" if prefix else f"selected {selected}"
-        else:
-            selected = None
-            reason = "; ".join(failures) or "no eligible candidates"
         if selected is None:
             blocked_roles.append(role_name)
         else:

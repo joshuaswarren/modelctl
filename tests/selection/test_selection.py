@@ -39,7 +39,6 @@ def candidate(
     provider: str = "zai",
     account: str = "main",
     mode: EvaluationMode = EvaluationMode.CLOUD,
-    priority: int = 0,
     available: bool = True,
     expires_at: datetime | None = None,
 ) -> dict[str, Any]:
@@ -50,7 +49,6 @@ def candidate(
         "destination": f"https://example.test/{candidate_id}",
         "route": candidate_id,
         "mode": mode.value,
-        "priority": priority,
         "available": available,
         "qualificationExpiresAt": expires_at.isoformat() if expires_at else None,
     }
@@ -133,7 +131,7 @@ class TestPolicyParsing:
         policy = selection_policy_from_bundle(
             bundle(
                 section(
-                    candidates=[candidate("alpha", priority=2)],
+                    candidates=[candidate("alpha")],
                     promotions=[promotion("alpha")],
                     runway={"zai/main": {"maximum": 5000.0}},
                     roles={"plan": {"workloadClass": "plan", "candidates": ["alpha"]}},
@@ -146,7 +144,6 @@ class TestPolicyParsing:
         assert policy.max_observation_age_seconds == 3600
         assert policy.runway["zai/main"].maximum == 5000.0
         assert policy.candidates[0].id == "alpha"
-        assert policy.candidates[0].priority == 2
         assert policy.promotions[0].outcome is PromotionOutcome.PROMOTED
         assert policy.roles["plan"].workload_class == "plan"
         assert policy.roles["plan"].candidates == ["alpha"]
@@ -210,7 +207,7 @@ class TestEligibility:
 
     def test_expired_qualification_is_excluded(self) -> None:
         expired = candidate("alpha", expires_at=NOW - timedelta(seconds=1))
-        fresh = candidate("beta", priority=9)
+        fresh = candidate("beta")
         req = request(
             section(
                 candidates=[expired, fresh],
@@ -226,7 +223,7 @@ class TestEligibility:
 
     def test_unavailable_candidate_is_excluded(self) -> None:
         down = candidate("alpha", available=False)
-        fresh = candidate("beta", priority=9)
+        fresh = candidate("beta")
         req = request(
             section(
                 candidates=[down, fresh],
@@ -242,12 +239,12 @@ class TestEligibility:
 
     def test_unpromoted_candidate_is_excluded(self) -> None:
         promoted = candidate("alpha")
-        unpromoted = candidate("beta", priority=-5)
+        unpromoted = candidate("beta")
         req = request(
             section(
                 candidates=[promoted, unpromoted],
                 promotions=[promotion("alpha")],
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["beta", "alpha"]}},
             ),
             estimates(estimate("zai", "main")),
             roles={"plan": "beta"},
@@ -259,12 +256,12 @@ class TestEligibility:
     @pytest.mark.parametrize("outcome", [PromotionOutcome.ROLLED_BACK, PromotionOutcome.BLOCKED])
     def test_non_promoted_outcomes_do_not_qualify(self, outcome: PromotionOutcome) -> None:
         promoted = candidate("alpha")
-        other = candidate("beta", priority=-5)
+        other = candidate("beta")
         req = request(
             section(
                 candidates=[promoted, other],
                 promotions=[promotion("alpha"), promotion("beta", outcome)],
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["beta", "alpha"]}},
             ),
             estimates(estimate("zai", "main")),
             roles={"plan": "beta"},
@@ -354,14 +351,12 @@ class TestStrictLocal:
 
 
 class TestSelectionOrder:
-    def test_eligible_higher_priority_candidate_reclaims_role(self) -> None:
-        incumbent = candidate("alpha", priority=9)
-        better = candidate("beta", priority=0)
+    def test_recovered_primary_reclaims_role_from_fallback(self) -> None:
         req = request(
             section(
-                candidates=[incumbent, better],
+                candidates=[candidate("alpha"), candidate("beta")],
                 promotions=[promotion("alpha"), promotion("beta")],
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["beta", "alpha"]}},
             ),
             estimates(estimate("zai", "main")),
             roles={"plan": "alpha"},
@@ -371,67 +366,37 @@ class TestSelectionOrder:
         assert plan.changed_roles == ["plan"]
         assert plan.fallback_chains["plan"] == ["alpha"]
 
-    def test_equal_priority_incumbent_is_kept_over_quieter_peer(self) -> None:
-        busy = estimate("busy", "main", used=700.0)
-        quiet = estimate("quiet", "main", used=100.0)
+    def test_each_role_orders_shared_candidates_independently(self) -> None:
         req = request(
             section(
-                candidates=[candidate("alpha", provider="busy"), candidate("beta", provider="quiet")],
+                candidates=[candidate("alpha"), candidate("beta")],
                 promotions=[promotion("alpha"), promotion("beta")],
-                runway={"busy/main": {"maximum": 1000.0}, "quiet/main": {"maximum": 1000.0}},
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
+                roles={
+                    "plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]},
+                    "second": {"workloadClass": "plan", "candidates": ["beta", "alpha"]},
+                },
             ),
-            estimates(busy, quiet),
-            roles={"plan": "alpha"},
+            estimates(estimate("zai", "main")),
         )
         plan = select_models(req)
-        assert plan.model_roles["plan"] == "alpha"
-        assert plan.changed_roles == []
+        assert (plan.model_roles["plan"], plan.fallback_chains["plan"]) == ("alpha", ["beta"])
+        assert (plan.model_roles["second"], plan.fallback_chains["second"]) == ("beta", ["alpha"])
 
-    def test_falls_back_by_policy_priority(self) -> None:
-        stale_incumbent = candidate("alpha", priority=5, provider="old")
-        beta = candidate("beta", priority=1)
-        gamma = candidate("gamma", priority=3)
+    def test_falls_back_to_next_eligible_in_role_order(self) -> None:
         req = request(
             section(
-                candidates=[stale_incumbent, beta, gamma],
+                candidates=[candidate("alpha", provider="old"), candidate("beta"), candidate("gamma")],
                 promotions=[promotion("alpha"), promotion("beta"), promotion("gamma")],
                 runway={"old/main": {"maximum": 1000.0}, "zai/main": {"maximum": 1000.0}},
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta", "gamma"]}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "gamma", "beta"]}},
             ),
             estimates(estimate("old", "main", fresh=NOW - timedelta(hours=2)), estimate("zai", "main")),
             roles={"plan": "alpha"},
         )
         plan = select_models(req)
-        assert plan.model_roles["plan"] == "beta"
-        assert plan.changed_roles == ["plan"]
+        assert plan.model_roles["plan"] == "gamma"
+        assert plan.fallback_chains["plan"] == ["beta"]
         assert "stale" in plan.decisions[0].reason
-
-    def test_priority_tie_breaks_by_lower_used_fraction(self) -> None:
-        busy = estimate("busy", "main", used=800.0)
-        quiet = estimate("quiet", "main", used=100.0)
-        section_data = section(
-            candidates=[candidate("alpha", provider="busy"), candidate("beta", provider="quiet")],
-            promotions=[promotion("alpha"), promotion("beta")],
-            runway={"busy/main": {"maximum": 1000.0}, "quiet/main": {"maximum": 1000.0}},
-            roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta"]}},
-        )
-        req = request(section_data, estimates(busy, quiet), roles={"plan": "gamma"})
-        plan = select_models(req)
-        assert plan.model_roles["plan"] == "beta"
-
-    def test_full_tie_breaks_by_candidate_id(self) -> None:
-        first = estimate("zai", "main", used=100.0)
-        second = estimate("aai", "main", used=100.0)
-        section_data = section(
-            candidates=[candidate("zulu"), candidate("alpha", provider="aai")],
-            promotions=[promotion("zulu"), promotion("alpha")],
-            runway={"zai/main": {"maximum": 1000.0}, "aai/main": {"maximum": 1000.0}},
-            roles={"plan": {"workloadClass": "plan", "candidates": ["zulu", "alpha"]}},
-        )
-        req = request(section_data, estimates(first, second), roles={"plan": "gamma"})
-        plan = select_models(req)
-        assert plan.model_roles["plan"] == "alpha"
 
     def test_no_eligible_candidate_blocks_role_and_keeps_value(self) -> None:
         req = request(
@@ -472,15 +437,11 @@ class TestMergeAndPlan:
         }
 
     def test_fallback_chain_is_eligible_candidates_in_selection_order(self) -> None:
-        candidates = [
-            candidate("alpha", priority=5),
-            candidate("beta", priority=1),
-        ]
         req = request(
             section(
-                candidates=candidates,
+                candidates=[candidate("alpha"), candidate("beta")],
                 promotions=[promotion("alpha"), promotion("beta"), promotion("ghost")],
-                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "beta", "ghost"]}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["beta", "alpha", "ghost"]}},
             ),
             estimates(estimate("zai", "main")),
         )
