@@ -41,8 +41,10 @@ def candidate(
     mode: EvaluationMode = EvaluationMode.CLOUD,
     available: bool = True,
     expires_at: datetime | None = None,
+    observable: bool = True,
 ) -> dict[str, Any]:
     return {
+        "observable": observable,
         "id": candidate_id,
         "provider": provider,
         "account": account,
@@ -468,3 +470,117 @@ class TestMergeAndPlan:
                 runway=[],
                 now=datetime(2026, 9, 1),  # noqa: DTZ001 - fixture exercises naive-now rejection
             )
+
+
+class TestMixedLocalAndCloudRole:
+    """A role may opt in to local rungs (always eligible) ahead of quota-gated cloud rungs."""
+
+    @staticmethod
+    def mixed_section(**role_extra: Any) -> dict[str, Any]:
+        local = candidate("local-a", mode=EvaluationMode.STRICT_LOCAL, provider="local", account="local")
+        cloud_a = candidate("cloud-a")
+        cloud_b = candidate("cloud-b", provider="cur", account="main")
+        return section(
+            candidates=[local, cloud_a, cloud_b],
+            promotions=[promotion("local-a"), promotion("cloud-a"), promotion("cloud-b")],
+            runway={"zai/main": {"maximum": 1000.0}, "cur/main": {"maximum": 1000.0}},
+            roles={
+                "plan": {
+                    "workloadClass": "plan",
+                    "candidates": ["local-a", "cloud-a", "cloud-b"],
+                    **role_extra,
+                }
+            },
+        )
+
+    def test_local_rung_stays_primary_and_cloud_rungs_chain_behind_it(self) -> None:
+        req = request(
+            self.mixed_section(allowLocal=True),
+            estimates(estimate("zai", "main", used=100.0), estimate("cur", "main", used=100.0)),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "local-a"
+        assert plan.fallback_chains["plan"] == ["cloud-a", "cloud-b"]
+
+    def test_cloud_rung_over_quota_is_dropped_from_the_chain(self) -> None:
+        req = request(
+            self.mixed_section(allowLocal=True),
+            estimates(estimate("zai", "main", used=999.0), estimate("cur", "main", used=100.0)),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "local-a"
+        assert plan.fallback_chains["plan"] == ["cloud-b"]
+
+    def test_local_rung_needs_no_runway_estimate(self) -> None:
+        req = request(self.mixed_section(allowLocal=True), estimates())
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "local-a"
+        assert plan.fallback_chains["plan"] == []
+
+    def test_without_allow_local_a_local_rung_is_still_wrong_mode(self) -> None:
+        req = request(
+            self.mixed_section(),
+            estimates(estimate("zai", "main"), estimate("cur", "main")),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "cloud-a"
+        assert "local-a: wrong-mode" in plan.decisions[0].reason
+
+    def test_allow_local_never_admits_cloud_into_a_strict_local_workload(self) -> None:
+        req = request(
+            self.mixed_section(allowLocal=True),
+            estimates(estimate("zai", "main"), estimate("cur", "main")),
+            strict_local={"plan"},
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "local-a"
+        assert plan.fallback_chains["plan"] == []
+        assert "cloud-a: wrong-mode" in plan.decisions[0].reason
+
+
+class TestUnobservableCandidate:
+    """A candidate on a plan with no usage API is admitted on promotion alone."""
+
+    def test_unobservable_candidate_is_eligible_without_an_estimate(self) -> None:
+        blind = candidate("blind", provider="ali", account="main", observable=False)
+        req = request(
+            section(
+                candidates=[blind],
+                promotions=[promotion("blind")],
+                runway={},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["blind"]}},
+            ),
+            estimates(),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "blind"
+
+    def test_observable_candidate_without_an_estimate_is_still_excluded(self) -> None:
+        seen = candidate("seen", provider="ali", account="main")
+        req = request(
+            section(
+                candidates=[seen],
+                promotions=[promotion("seen")],
+                runway={"ali/main": {"maximum": 100.0}},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["seen"]}},
+            ),
+            estimates(),
+        )
+        plan = select_models(req)
+        assert plan.blocked_roles == ["plan"]
+        assert "seen: unknown" in plan.decisions[0].reason
+
+    def test_unobservable_candidate_still_needs_promotion(self) -> None:
+        blind = candidate("blind", provider="ali", account="main", observable=False)
+        req = request(
+            section(
+                candidates=[blind],
+                promotions=[],
+                runway={},
+                roles={"plan": {"workloadClass": "plan", "candidates": ["blind"]}},
+            ),
+            estimates(),
+        )
+        plan = select_models(req)
+        assert plan.blocked_roles == ["plan"]
+        assert "blind: unpromoted" in plan.decisions[0].reason

@@ -27,6 +27,9 @@ class SelectionCandidate(Candidate):
         default=None,
         alias="qualificationExpiresAt",
     )
+    # False for a plan with no usage API: the candidate is admitted on promotion alone
+    # (like a strict-local one) instead of being excluded as "unknown" forever.
+    observable: bool = True
 
     @field_validator("qualification_expires_at")
     @classmethod
@@ -50,6 +53,9 @@ class SelectionRole(DomainModel):
     workload_class: str = Field(min_length=1, alias="workloadClass")
     candidates: list[str] = Field(default_factory=list)
     strict_local: bool = False
+    # Opt-in for a cloud role to list strict-local rungs too. Local rungs are always eligible
+    # (no meter); cloud rungs stay quota-gated. Never widens a strict-local workload.
+    allow_local: bool = Field(default=False, alias="allowLocal")
 
     @field_validator("candidates")
     @classmethod
@@ -61,6 +67,12 @@ class SelectionRole(DomainModel):
     def expected_mode(self) -> EvaluationMode:
         """The evaluation mode this role may select from."""
         return EvaluationMode.STRICT_LOCAL if self.strict_local else EvaluationMode.CLOUD
+
+    def admitted_modes(self) -> frozenset[EvaluationMode]:
+        """Every candidate mode this role may list."""
+        if self.allow_local and not self.strict_local:
+            return frozenset({EvaluationMode.CLOUD, EvaluationMode.STRICT_LOCAL})
+        return frozenset({self.expected_mode()})
 
 
 class SelectionPolicy(DomainModel):
@@ -192,7 +204,7 @@ def _evaluate_role(
     now: datetime,
 ) -> tuple[list[SelectionCandidate], list[str]]:
     """Return eligible candidates in the role's listed order plus per-candidate exclusion reasons."""
-    expected_mode = role.expected_mode()
+    admitted = role.admitted_modes()
     max_age = timedelta(seconds=policy.max_observation_age_seconds)
     eligible: list[SelectionCandidate] = []
     failures: list[str] = []
@@ -207,13 +219,13 @@ def _evaluate_role(
         if candidate.qualification_expires_at is not None and candidate.qualification_expires_at < now:
             failures.append(f"{ref}: expired")
             continue
-        if candidate.mode is not expected_mode:
+        if candidate.mode not in admitted:
             failures.append(f"{ref}: wrong-mode")
             continue
         if ref not in promoted:
             failures.append(f"{ref}: unpromoted")
             continue
-        if expected_mode is EvaluationMode.STRICT_LOCAL:
+        if candidate.mode is EvaluationMode.STRICT_LOCAL or not candidate.observable:
             eligible.append(candidate)
             continue
         estimate = runway_index.get((candidate.provider, candidate.account))
