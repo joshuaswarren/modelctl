@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
-from modelctl.cli.validate import validate_paths
+import pytest
+
+from modelctl.cli.validate import main, validate_paths
 
 
 def test_validate_accepts_synthetic_policy(tmp_path: Path) -> None:
@@ -43,3 +45,55 @@ def test_validate_rejects_missing_path(tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
 
     assert validate_paths([missing]) == [f"{missing}: path does not exist"]
+
+
+@pytest.mark.parametrize("suffix", [".yaml", ".yml", ".YAML"])
+def test_validate_loads_nested_yaml_policy(tmp_path: Path, suffix: str) -> None:
+    directory = tmp_path / "nested"
+    directory.mkdir()
+    (directory / f"policy{suffix}").write_text(
+        "version: 1\nworkloads:\n  - name: tiny\nroutes: {}\n", encoding="utf-8"
+    )
+
+    assert validate_paths([tmp_path]) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [("policy.json", b'{"version":'), ("policy.yaml", b"version: ["), ("policy.yml", b"\xff")],
+)
+def test_validate_reports_unreadable_documents(tmp_path: Path, filename: str, content: bytes) -> None:
+    path = tmp_path / filename
+    path.write_bytes(content)
+
+    errors = validate_paths([path])
+
+    assert len(errors) == 1
+    assert errors[0].startswith(f"{path}: ")
+
+
+def test_cli_defaults_to_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "policy.json").write_text(
+        json.dumps({"version": 1, "workloads": [{"name": "tiny"}], "routes": {}}), encoding="utf-8"
+    )
+
+    assert main([]) == 0
+    assert capsys.readouterr().out == "valid\n"
+
+
+def test_cli_reports_each_bad_file_without_stopping(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("version: [", encoding="utf-8")
+    missing = tmp_path / "missing.json"
+
+    assert main([str(malformed), str(missing)]) == 1
+    output = capsys.readouterr()
+    assert f"{malformed}:" in output.out
+    assert f"{missing}: path does not exist" in output.out
+    assert "valid\n" not in output.out
+    assert output.err == ""

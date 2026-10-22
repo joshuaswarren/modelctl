@@ -2,34 +2,48 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
           version: latest
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --group dev
-      - run: uv run pytest --import-mode=importlib
-      - run: uv run modelctl-validate fixtures/policy
-      - run: uv run mypy --strict src
-      - run: uv run ruff check src scripts tests
-      - run: uv run python scripts/privacy_scan.py .
+      - run: uv sync --locked --group dev
+      - run: uv run --no-sync pytest --import-mode=importlib
+      - run: uv run --no-sync modelctl-validate fixtures/policy
+      - run: uv run --no-sync mypy --strict src
+      - run: uv run --no-sync ruff check src scripts tests
+      - run: uv run --no-sync python scripts/privacy_scan.py .
 
   extension:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
+      - run: bun install --frozen-lockfile
       - run: bun install --frozen-lockfile
         working-directory: extensions/omp
       - run: bun run test

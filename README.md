@@ -30,10 +30,19 @@ start another recovery agent.
 Use Python 3.12 or newer and `uv`.
 
 ```sh
-uv sync --extra dev
-uv run pytest
-uv run mypy --strict src
+uv sync --locked --group dev
+uv run --no-sync pytest
+uv run --no-sync mypy --strict src
 ```
+
+To check CLI parsing and invalid configurations without contacting services:
+
+```sh
+uv run --no-sync pytest tests/cli/test_validate.py tests/telemetry/test_cli.py
+```
+
+The policy validator reports malformed JSON, YAML, and encoding errors and continues checking other files.
+CI uses locked dependencies, read-only repository access, and bounded jobs.
 
 ## Support
 

@@ -36,7 +36,10 @@ def _load_document(path: Path) -> Any:
             import yaml
         except ImportError as exc:
             raise ValueError("YAML validation requires PyYAML") from exc
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            return yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ValueError(str(exc)) from exc
     return json.loads(path.read_text(encoding="utf-8"))
 
 
