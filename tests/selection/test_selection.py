@@ -397,7 +397,8 @@ class TestSelectionOrder:
         )
         plan = select_models(req)
         assert plan.model_roles["plan"] == "gamma"
-        assert plan.fallback_chains["plan"] == ["beta"]
+        # The chain keeps the full rung order; the stale primary stays listed for omp to walk.
+        assert plan.fallback_chains["plan"] == ["alpha", "beta"]
         assert "stale" in plan.decisions[0].reason
 
     def test_no_eligible_candidate_blocks_role_and_keeps_value(self) -> None:
@@ -413,6 +414,21 @@ class TestSelectionOrder:
         decision = plan.decisions[0]
         assert decision.blocked is True
         assert decision.selected is None
+
+    def test_blocked_role_keeps_primary_and_gets_full_chain(self) -> None:
+        req = request(
+            section(
+                candidates=[candidate("alpha"), candidate("beta"), candidate("gamma")],
+                promotions=[promotion("alpha"), promotion("beta"), promotion("gamma")],
+                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "gamma", "beta"]}},
+            ),
+            estimates(estimate("zai", "main", fresh=NOW - timedelta(hours=3))),
+            roles={"plan": "alpha"},
+        )
+        plan = select_models(req)
+        assert plan.blocked_roles == ["plan"]
+        assert plan.model_roles["plan"] == "alpha"
+        assert plan.fallback_chains["plan"] == ["gamma", "beta"]
 
     def test_blocked_role_without_incumbent_keeps_maps_clean(self) -> None:
         req = request(section(), estimates())
@@ -502,20 +518,20 @@ class TestMixedLocalAndCloudRole:
         assert plan.model_roles["plan"] == "local-a"
         assert plan.fallback_chains["plan"] == ["cloud-a", "cloud-b"]
 
-    def test_cloud_rung_over_quota_is_dropped_from_the_chain(self) -> None:
+    def test_cloud_rung_over_quota_stays_in_the_chain(self) -> None:
         req = request(
             self.mixed_section(allowLocal=True),
             estimates(estimate("zai", "main", used=999.0), estimate("cur", "main", used=100.0)),
         )
         plan = select_models(req)
         assert plan.model_roles["plan"] == "local-a"
-        assert plan.fallback_chains["plan"] == ["cloud-b"]
+        assert plan.fallback_chains["plan"] == ["cloud-a", "cloud-b"]
 
     def test_local_rung_needs_no_runway_estimate(self) -> None:
         req = request(self.mixed_section(allowLocal=True), estimates())
         plan = select_models(req)
         assert plan.model_roles["plan"] == "local-a"
-        assert plan.fallback_chains["plan"] == []
+        assert plan.fallback_chains["plan"] == ["cloud-a", "cloud-b"]
 
     def test_without_allow_local_a_local_rung_is_still_wrong_mode(self) -> None:
         req = request(
