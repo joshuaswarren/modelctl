@@ -415,6 +415,21 @@ class TestSelectionOrder:
         assert decision.blocked is True
         assert decision.selected is None
 
+    def test_blocked_role_keeps_primary_and_gets_full_chain(self) -> None:
+        req = request(
+            section(
+                candidates=[candidate("alpha"), candidate("beta"), candidate("gamma")],
+                promotions=[promotion("alpha"), promotion("beta"), promotion("gamma")],
+                roles={"plan": {"workloadClass": "plan", "candidates": ["alpha", "gamma", "beta"]}},
+            ),
+            estimates(estimate("zai", "main", fresh=NOW - timedelta(hours=3))),
+            roles={"plan": "alpha"},
+        )
+        plan = select_models(req)
+        assert plan.blocked_roles == ["plan"]
+        assert plan.model_roles["plan"] == "alpha"
+        assert plan.fallback_chains["plan"] == ["gamma", "beta"]
+
     def test_blocked_role_without_incumbent_keeps_maps_clean(self) -> None:
         req = request(section(), estimates())
         plan = select_models(req)

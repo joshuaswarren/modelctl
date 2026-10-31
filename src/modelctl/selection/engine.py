@@ -282,19 +282,22 @@ def select_models(request: SelectionRequest) -> SelectionPlan:
         else:
             prefix = "; ".join(failures)
             reason = f"{prefix}; selected {selected}" if prefix else f"selected {selected}"
+        # Chain the policy's full rung order after the primary. Quota gating picks the
+        # primary only; omp's own fallback walk skips a limited provider per request, so a
+        # hot meter this cycle must not empty the chain. A blocked role keeps its primary
+        # but still gets the full chain behind it.
+        admitted = role.admitted_modes()
+        primary = selected if selected is not None else previous
+        if primary is not None:
+            fallback_chains[role_name] = [
+                ref for ref in role.candidates
+                if ref != primary and ref in promoted and ref in catalog
+                and catalog[ref].available and catalog[ref].mode in admitted
+            ]
         if selected is None:
             blocked_roles.append(role_name)
         else:
             model_roles[role_name] = selected
-            # Chain the policy's full rung order after the primary. Quota gating picks the
-            # primary only; omp's own fallback walk skips a limited provider per request, so a
-            # hot meter this cycle must not empty the chain.
-            admitted = role.admitted_modes()
-            fallback_chains[role_name] = [
-                ref for ref in role.candidates
-                if ref != selected and ref in promoted and ref in catalog
-                and catalog[ref].available and catalog[ref].mode in admitted
-            ]
             if selected != previous:
                 changed_roles.append(role_name)
         decisions.append(
