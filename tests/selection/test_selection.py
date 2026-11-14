@@ -531,7 +531,8 @@ class TestMixedLocalAndCloudRole:
         req = request(self.mixed_section(allowLocal=True), estimates())
         plan = select_models(req)
         assert plan.model_roles["plan"] == "local-a"
-        assert plan.fallback_chains["plan"] == ["cloud-a", "cloud-b"]
+        # Cloud rungs with no runway estimate at all are left out of the chain (COS-663).
+        assert plan.fallback_chains["plan"] == []
 
     def test_without_allow_local_a_local_rung_is_still_wrong_mode(self) -> None:
         req = request(
@@ -600,3 +601,63 @@ class TestUnobservableCandidate:
         plan = select_models(req)
         assert plan.blocked_roles == ["plan"]
         assert "blind: unpromoted" in plan.decisions[0].reason
+
+
+class TestChainOmitsRungsWithoutEstimate:
+    """A metered rung with no runway estimate (e.g. a provider with 0 accounts) is dropped
+    from the fallback chain; an unobservable or strict-local rung is kept (COS-663)."""
+
+    @staticmethod
+    def chain_section(*, gone_observable: bool) -> dict[str, Any]:
+        return section(
+            candidates=[
+                candidate("alpha"),
+                candidate("gone", provider="ag", account="main", observable=gone_observable),
+                candidate("beta", provider="cur", account="main"),
+                candidate("local-a", mode=EvaluationMode.STRICT_LOCAL, provider="local", account="local"),
+            ],
+            promotions=[promotion("alpha"), promotion("gone"), promotion("beta"), promotion("local-a")],
+            runway={
+                "zai/main": {"maximum": 1000.0},
+                "ag/main": {"maximum": 1000.0},
+                "cur/main": {"maximum": 1000.0},
+            },
+            roles={
+                "plan": {
+                    "workloadClass": "plan",
+                    "candidates": ["alpha", "gone", "beta", "local-a"],
+                    "allowLocal": True,
+                }
+            },
+        )
+
+    def test_rung_without_estimate_is_absent_from_chain(self) -> None:
+        req = request(
+            self.chain_section(gone_observable=True),
+            estimates(estimate("zai", "main"), estimate("cur", "main", used=999.0)),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "alpha"
+        # Over-quota beta keeps its rung (it has an estimate); gone has none and is dropped.
+        assert plan.fallback_chains["plan"] == ["beta", "local-a"]
+
+    def test_unobservable_rung_without_estimate_stays_in_chain(self) -> None:
+        req = request(
+            self.chain_section(gone_observable=False),
+            estimates(estimate("zai", "main"), estimate("cur", "main")),
+        )
+        plan = select_models(req)
+        assert plan.model_roles["plan"] == "alpha"
+        assert plan.fallback_chains["plan"] == ["gone", "beta", "local-a"]
+
+    def test_primary_selection_is_unchanged_by_chain_filter(self) -> None:
+        req = request(
+            self.chain_section(gone_observable=True),
+            estimates(estimate("cur", "main")),
+            roles={"plan": "alpha"},
+        )
+        plan = select_models(req)
+        # alpha (no estimate) is skipped as unknown for primary, exactly as before.
+        assert plan.model_roles["plan"] == "beta"
+        assert "alpha: unknown" in plan.decisions[0].reason
+        assert plan.fallback_chains["plan"] == ["local-a"]

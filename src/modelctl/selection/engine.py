@@ -253,6 +253,22 @@ def _evaluate_role(
     return eligible, failures
 
 
+def _chainable(
+    candidate: SelectionCandidate,
+    runway_index: Mapping[tuple[str, str], RunwayEstimate],
+) -> bool:
+    """Whether a rung may sit in a fallback chain.
+
+    A metered rung with no runway estimate at all (e.g. a provider with zero accounts) has
+    nothing for omp to fall back to, so it is left out. Strict-local and unobservable rungs
+    never carry an estimate and stay in. Rungs that have an estimate stay in even when stale
+    or over quota (COS-494); only primary selection is quota-gated.
+    """
+    if candidate.mode is EvaluationMode.STRICT_LOCAL or not candidate.observable:
+        return True
+    return (candidate.provider, candidate.account) in runway_index
+
+
 def select_models(request: SelectionRequest) -> SelectionPlan:
     """Select per-role candidates and merge them into the current maps."""
     policy = request.policy
@@ -293,6 +309,7 @@ def select_models(request: SelectionRequest) -> SelectionPlan:
                 ref for ref in role.candidates
                 if ref != primary and ref in promoted and ref in catalog
                 and catalog[ref].available and catalog[ref].mode in admitted
+                and _chainable(catalog[ref], runway_index)
             ]
         if selected is None:
             blocked_roles.append(role_name)
